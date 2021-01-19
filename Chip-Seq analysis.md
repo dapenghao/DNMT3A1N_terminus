@@ -1,11 +1,3 @@
-This is the repository that contains the analysis of the lung adenocarcinoma single cell dataset
-
-## Getting started
-
-Clone the repo
-Download the Data_input folder from the link below into the repo
-https://drive.google.com/drive/folders/1nONsp9VuhmPzuDvMet0i8x26eV9r5lkT?usp=sharing 
-
 ## Representative ChIP-seq Scripts
 
 ### Mapping of ChIPSeq data using BWA
