@@ -34,7 +34,7 @@ samtools index ${samplename%.sam}.sort.bam
 Rscript ./Tools/phantompeakqualtools/run_spp.R -c=sample.sort.bam -savp=./${i%.sort.bam}.pdf -out=./xcor/xcor_metrics_${i%.sort.bam}.txt
 ```
 
-### Using deeptools to normalize and visualize the data
+### Using deeptools to normalize and to visualize
 
 ```
 module load deeptools
