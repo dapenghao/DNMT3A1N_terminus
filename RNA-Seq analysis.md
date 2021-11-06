@@ -160,6 +160,55 @@ theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=elem
 theme_bw()
 ```
 
+### Correlation between methylation change and expression change
+
+```bash
+# obtain methylation value at gene body
+multiBigwigSummary BED-file --binSize 100000 \
+ -b sample_01.bw sample_02.bw sample_03.bw sample_04.bw \
+ --labels WT_1 WT_2 3a1KO_1 3a1KO_2
+ -out scores_per_bin.npz \
+ --outRawCounts scores_per_GeneBody_CpG.tab -p 5 \
+ --BED ProteinCodingGenes.bed
+```
+
+```R
+library(data.table);library(ggplot2)
+WGBS <- fread("scores_per_GeneBody_CpG.tab",header = T)
+
+Sliding <- function(TotalNumber, binSize, SlidingSize) {
+  bins <- list()
+  i=1;iOrd_start=1;iOrd_end=binSize
+  while(iOrd_end < TotalNumber){
+    bins[[i]] <- iOrd_start:iOrd_end
+    i = i+1
+    iOrd_start = iOrd_start+SlidingSize
+    iOrd_end <- ifelse((iOrd_end + SlidingSize) < TotalNumber,iOrd_end + SlidingSize,TotalNumber)
+  }
+  bins[[i]] <- iOrd_start:iOrd_end
+  return(bins)
+}
+
+KO3a1.WGBS <- WGBS[WGBS$gene %in% KO3a1.DEG$genes,]
+KO3a1.WGBS$meanDif <- rowMeans(KO3a1.WGBS[,c("3a1KO_NeuNuclei_Me_1","3a1KO_NeuNuclei_Me_2")]) - rowMeans(KO3a1.WGBS[,c("WT_NeuNuclei_Me_1","WT_NeuNuclei_Me_2")])
+  KO3a1.WGBS$meanDif <- KO3a1.WGBS$meanDif*100 # % percentages
+  KO3a1.WGBS <- KO3a1.WGBS[order(KO3a1.WGBS$meanDif,decreasing = F),]
+  KO3a1.WGBS <- KO3a1.WGBS[!is.na(KO3a1.WGBS$meanDif),]
+  KO3a1.WGBS$logFC <- KO3a1.DEG[KO3a1.WGBS$gene,"logFC"]
+  bins <- Sliding(nrow(KO3a1.WGBS),100,20)
+  KO3a1.cor <- data.frame(iOrd=1:length(bins),logFC=NA,percent_methy=NA)
+  for (i in 1:length(bins)) {
+    KO3a1.cor$iOrd[i] <- i
+    KO3a1.cor$logFC[i] <- mean(KO3a1.WGBS$logFC[bins[[i]]])
+    KO3a1.cor$percent_methy[i] <- mean(KO3a1.WGBS$meanDif[bins[[i]]])
+  }
+  
+  p1 <- ggplot(KO3a1.cor, aes(x = percent_methy, y = logFC)) + geom_point(color = "#00AFBB",size=2) + 
+    geom_smooth(method = lm, se = FALSE) + theme_classic()+
+    ylab("average LogFC (3a1Ko vs WT)") + xlab("%mCpG (3a1KO-WT)")+
+```
+
+
 
 ## Softwares
 
@@ -167,4 +216,4 @@ STAR (v2.5.3b)
 
 HTSeq-count (v0.11.0) 
 
-R package EdgeR (v3.26.8) 
+R package EdgeR (v3.26.8), ggplot2 (v3.3.5) 

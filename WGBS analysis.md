@@ -127,7 +127,68 @@ print(EnrichedHeatmap(mat_DMR, col = c("white", "red"), name = "DMR",row_order=N
 dev.off()
 ```
 
-### 
+### Methylation changes across gene body
+
+```bash
+module load deeptools/3.1.3
+computeMatrix scale-regions -S sample_01.bw sample_02.bw sample_03.bw sample_04.bw \
+-R DEGs.bed -b 5000 -a 5000 \
+--outFileName matrix.1to4.gz \
+--regionBodyLength 5000 --numberOfProcessors 5 --samplesLabel WT_1 WT_2 3a1KO_1 3a1KO_2
+
+plotProfile -m ./deeptool_result/matrix.1to4.gz -out ./deeptool_result/density_DEGs.pdf --plotTitle "" \
+--numPlotsPerRow 3 --perGroup --outFileNameData ./deeptool_result/density_DEGs_perGroup_5kb.tab
+```
+
+```
+library(data.table)
+avg.WGBS <- fread("density_DEGs_perGroup_5kb.tab",skip=1,fill=TRUE)
+avg.WGBS <- avg.WGBS[-1,1:1502]
+iOrd <- paste0(avg.WGBS$V1,"_",avg.WGBS$V2)
+avg.WGBS <- as.data.frame(t(avg.WGBS[,3:1502]))
+colnames(avg.WGBS) <- iOrd
+
+dif.WGBS <- data.frame(UpDEGs=rowMeans(avg.WGBS[,c("3a1KO_1_UpDEGs","3a1KO_2_UpDEGs")]) - rowMeans(avg.WGBS[,c("WT_1_UpDEGs","WT_2_UpDEGs")]),
+                       Other=rowMeans(avg.WGBS[,c("3a1KO_1_Other","3a1KO_2_Other")]) - rowMeans(avg.WGBS[,c("WT_1_Other","WT_2_Other")]),
+                       DnDEGs=rowMeans(avg.WGBS[,c("3a1KO_1_DnDEGs","3a1KO_2_DnDEGs")]) - rowMeans(avg.WGBS[,c("WT_1_DnDEGs","WT_2_DnDEGs")])
+)
+rownames(dif.WGBS) <- 1:1500
+df <- NULL
+x <- data.frame(group="UpDEGs",value=dif.WGBS$UpDEGs,position=1:1500)
+df <- rbind(df,x)
+x <- data.frame(group="Other",value=dif.WGBS$Other,position=1:1500)
+df <- rbind(df,x)
+x <- data.frame(group="DnDEGs",value=dif.WGBS$DnDEGs,position=1:1500)
+df <- rbind(df,x)
+
+ggplot(df, aes(position, value, colour = group)) + 
+  geom_point(size=0.1)+
+  geom_smooth(method='loess', fullrange = TRUE,se=F,span=0.1) + 
+  labs(y = "3a1KO-WT", x = "position")+
+  theme_bw()+
+  theme(legend.position = "top", legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 14)) + ylim(c(-0.125,0))
+```
+
+### Valcano plot of methylation changes for DMRs
+
+```R
+library(ggplot2);library(Seurat)
+# load 
+DMR_3a1KO <- fread("./MethyRatio/DMR/3a1KO_vs_WT.txt")
+DMR_3a1KO <- data.frame(DMR_3a1KO,stringsAsFactors = F)
+  df <- data.frame(WT=DMR_3a1KO$mean.g1,
+                   V3a1KO=DMR_3a1KO$mean.g2,
+                   pvalue=-1*log10(DMR_3a1KO$p..MWU.),
+                   FDR = ifelse(DMR_3a1KO$q.value>=0.05,"","FDR<0.05"))
+  p1 <- ggplot(df, aes(x=WT, y=V3a1KO, color=pvalue)) + geom_point(size=0.1) +
+    scale_color_gradient2(midpoint=median(df$pvalue), low="#525252", mid="white",
+                          high="red", space ="Lab" ) +
+    theme_classic() 
+  p2 <- AugmentPlot(p1, width = 10, height = 10, dpi = 300)
+```
+
+
 
 ## Softwares
 
@@ -140,3 +201,7 @@ iBSTools (https://github.com/methylation/ iBSTools)
 DeepTools (v3.1.3) 
 
 R library “EnrichedHeatmap” (v1.14.0) 
+
+Seurat (v4.0.3)
+
+ggplot2 (v3.3.5)
