@@ -1,6 +1,6 @@
-## Representative WGBS Scripts
+## 1. Processing of raw data
 
-### mm9 genome preparation
+### (1) Mouse genome preparation
 
 ```bash
 wget https://hgdownload.soe.ucsc.edu/goldenPath/mm9/bigZips/chromFa.tar.gz
@@ -14,7 +14,7 @@ module load bwa
 bwa index mm9.fa
 ```
 
-### Mapping WGBS data to mm9 using bsmap
+### (2) Mapping WGBS data to mm9 using bsmap
 
 ```bash
 module load gcc/7.2.0
@@ -26,14 +26,14 @@ mkdir bsmap_out
 samtools sort -@ 5 ./bsmap_out/sample1bam ./bsmap_out/sample1_sorted
 ```
 
-### Estimate CT conversion rate
+### (3) Estimate CT conversion rate
 
 ```bash
 module load moabs
 mcall -m $samplename --statsOnly 1 -r ./Genomes/mm9/mm9.fa -p 8 --sampleName ${samplename%_sorted.bam}_bisulfite_conversion
 ```
 
-### Estimate methylation ratio of CpG sites
+### (4) Estimate methylation ratio of CpG sites
 
 ```bash
 module load samtools/0.1.19
@@ -41,7 +41,11 @@ module load samtools/0.1.19
 python ./software/bsmap-2.90/methratio.py -d ./Genomes/mm9/mm9.fa -x CG -i no-action -u -g -m 5 -p -r -w ./MethyRatio/${samplename%_sorted.bam}.wig -o ./MethyRatio/${samplename%_sorted.bam}.methyRatio $bamPath/$samplename
 ```
 
-### De Novo identification of DMR
+
+
+## 2. Analysis of differentially methylated regions (DMRs)
+
+### (1) De Novo identification of DMR
 
 ```bash
 #1)formatting data for metilene:
@@ -63,14 +67,14 @@ sed -i '1 s/^.*/chr\tpos\tc1_1\tc1_2\tt1_1\tt1_2/' group_1.txt # add headers
 sed -i '1s/^/chr\tstart\tstop\tq-value\tmean difference: mean g1 - mean g2\t#CpGs\tp (MWU)\tp (2D KS)\tmean g1\tmean g2\n/' ./DMR/group_1_DMR.txt
 ```
 
-### Annotation of DMR using HOMER
+### (2) Annotation of DMR using HOMER
 
 ```bash
 module load homer
 annotatePeaks.pl group_1_DMR.bed mm9 -annStats group_1_DMR_status.txt > group_1_DMR_annotated.bed
 ```
 
-### Identification of UMR (Under-methylated regions)
+### (3) Identification of UMR (Under-methylated regions)
 
 ```bash
 module load python/3.7.3-anaconda
@@ -78,30 +82,35 @@ module load python/3.7.3-anaconda
 ./iBSTools_v1.3.0/pattern -i ./wigs/sample1.wig -o ./wigs/ -n sample1
 ```
 
-### Density distribution of CpG methylation
+
+
+## 3. Data visualization
+
+### (1) Density distribution of CpG methylation
+
+Related to "Figure.5b, 5c, 5f, 6b; Extended Data Figure.6c, 8b, 8f, 8i, 8l"
 
 ```bash
 module load deeptools
-
 # convert wig files to bigwig
 ./software/wigToBigWig.dms ./MethyRatio/${samplename%_sorted.bam}.wig ./Genomes/mm9/mm9.len ./MethyRatio/${samplename%_sorted.bam}.bw
 
 computeMatrix scale-regions -S ${samplename}.bw\
 -R ./protein-coding.bed -b 2000 -a 2000 --outFileName ./matrix.gz \
 --regionBodyLength 5000
-
 #plot profile:
 plotProfile -m ./deeptool_result/matrix.gz -out ./density_Genes_perGroup.pdf --plotTitle "" --numPlotsPerRow 3 --perGroup
 ```
 
-### Overlap between DMR and gene body
+### (2) Overlap between DMR and gene body
+
+Related to "Figure.5h; Extended Data Figure.8k, 8j"
 
 ```R
 library(EnrichedHeatmap)
 library(RColorBrewer)
 library(GenomicRanges)
 library(circlize)
-
 Gene <- fread("protein-coding-genes.bed")
 Gene <- data.frame(Gene,stringsAsFactors = F)
 Gene <- GRanges(seqnames = Gene[,1],
@@ -115,7 +124,6 @@ DMR <- fread("group_1_DMR.txt")
 DMR <- data.frame(DMR,stringsAsFactors = F)
 #DMR_3a1KO <- DMR_3a1KO[DMR_3a1KO$q.value<0.1,]
 DMR <- DMR_3a1KO[DMR$p..MWU.<0.01,]
-
 DMR <- GRanges(seqnames = DMR$chr,
                      ranges = IRanges(start = DMR$start, end = DMR$stop),
                      strand = "*",
@@ -127,7 +135,9 @@ print(EnrichedHeatmap(mat_DMR, col = c("white", "red"), name = "DMR",row_order=N
 dev.off()
 ```
 
-### Methylation changes across gene body
+### (3) Methylation changes across genomic regions
+
+Related to "Figure.6d; Extended Data Figure.8m"
 
 ```bash
 module load deeptools/3.1.3
@@ -170,7 +180,9 @@ ggplot(df, aes(position, value, colour = group)) +
         legend.title = element_text(size = 14)) + ylim(c(-0.125,0))
 ```
 
-### Valcano plot of methylation changes for DMRs
+### (4) Valcano plot of methylation changes for DMRs
+
+Related to "Extended Data Figure.6d"
 
 ```R
 library(ggplot2);library(Seurat)
@@ -188,9 +200,42 @@ DMR_3a1KO <- data.frame(DMR_3a1KO,stringsAsFactors = F)
   p2 <- AugmentPlot(p1, width = 10, height = 10, dpi = 300)
 ```
 
+### (5) Heatmap of average methylation value of genomic regions
+
+Related to "Figure.5i; Extended Data Figure.8d "
+
+```bash
+module load deeptools
+computeMatrix scale-regions -S \
+MG_24146_01.bw MG_24146_02.bw MG_24146_03.bw \
+MG_24146_04.bw MG_24146_05.bw MG_24146_06.bw \
+MG_24146_07.bw MG_24146_08.bw \
+-R ./DMR/DMR_3a1KO.bed \
+-b 0 -a 0 --outFileName ./deeptool_result/DMR_3a1KO.1to8.gz \
+--regionBodyLength 10 --numberOfProcessors max --binSize 10 --missingDataAsZero \
+--samplesLabel WT_1 WT_2 3a1KO_1 3a1KO_2 3a2KO_1 3a2KO_2 dN_1 dN_2
+```
+
+```R
+meth <- fread("DMR_3a1KO.1to8",skip = 1)
+Mat <- as.matrix(meth[,7:14])
+colnames(Mat) <- c('WT1','WT2','KO3a1_1','KO3a1_2','KO3a2_1','KO3a2_2','dN_1','dN_2')
+library(pheatmap)
+bk <- c(seq(-2,-0.1,by=0.02),seq(0,2,by=0.02))
+colour_bk <- c(colorRampPalette(c("#2166ac","#d1e5f0"))(83),
+               colorRampPalette(c("#d1e5f0","#f7f7f7"))(15),
+               colorRampPalette(c("#f7f7f7","#fddbc7"))(15),
+               colorRampPalette(c("#fddbc7","#b2182b"))(84))
+pdf(file = "heatmap fo DMR_3a1KO.pdf",width = 5,height = 11)
+x<-pheatmap(Mat, cluster_rows=T, cluster_cols=F,clustering_method="ward.D",
+            scale="row",show_colnames=T,show_rownames=F,
+            breaks = bk,color = colour_bk,angle_col=45)
+dev.off()
+```
 
 
-## Softwares
+
+## 4. Softwares
 
 BSMAP (v2.90) 
 

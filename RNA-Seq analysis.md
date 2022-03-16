@@ -1,6 +1,6 @@
-## Representative RNA-seq Scripts
+## 1. Processing of RNA-seq data
 
-### Build Genome index using STAR
+### (1) Build Genome index using STAR
 
 ```bash
 module load star/2.5.3a
@@ -13,9 +13,7 @@ STAR --runMode genomeGenerate \
 --sjdbGTFfile ./gencode.mouse.v1.annotation.gtf
 ```
 
-
-
-### Detecting gene expression using STAR
+### (2) Detecting gene expression using STAR
 
 ```bash
 module load star/2.5.3a
@@ -83,7 +81,7 @@ runSTAR $fq1 $fq2 $outputFile1 $outputFile1\$fastqfolder\SJ.out.tab $outputFile2
 samtools index $bamfile
 ```
 
-### Counting reads
+### (3) Counting reads
 
 ```bash
 htseq-count -m intersection-nonempty -i gene_id -s reverse -r pos -f bam \
@@ -91,7 +89,13 @@ htseq-count -m intersection-nonempty -i gene_id -s reverse -r pos -f bam \
 ${samplename} ./gencode.mouse.v1.annotation.gtf > $HTseq_output/${ouput%Aligned.sortedByCoord.out.bam}.txt
 ```
 
-### Gene expression analysis
+
+
+## 2. Downstream gene expression analysis
+
+### (1) Normalization and comparision between samples using EdgeR
+
+Related to "Figure.2f, Extended Data Figure.3d, 3e, 6g, 8g".
 
 ```R
 library(edgeR)
@@ -138,31 +142,59 @@ EdgeR <- function(ReadCounts, group1, group2) {
   geneDE$LR <- ifelse(geneDE$logFC>0,geneDE$LR,-1*geneDE$LR)
   return(geneDE)
 }
-
 group2 <- c("s3a1KO_CTX_1","s3a1KO_CTX_2","s3a1KO_CTX_3")
 group1 <- c("sWT_CTX_1","sWT_CTX_2","sWT_CTX_3")
 KO3a1.DEG <- EdgeR(ReadCounts,group1,group2)
 KO3a1.DEG$Symbol <- geneAnno[rownames(KO3a1.DEG),"name"]
 KO3a1.DEGs <- KO3a1.DEG[KO3a1.DEG$PValue < p_cutoff,]
 
-# location of DEGs along the BED file sorted by Dnmt3a binding:
-BED <- fread("./byDnmt3a.bed")
-BED <- data.frame(BED,stringsAsFactors = F)
-rownames(BED) <- BED$name
-KO3a1.DEGs <- KO3a1.DEGs[is.element(KO3a1.DEGs$genes,BED$name),]
-BED$KO3a1DEG <- NA;BED[KO3a1.DEGs$genes,"KO3a1DEG"] <- 1
-BED$type <- NA;BED[KO3a1.DEGs$genes[KO3a1.DEGs$logFC>0],"type"] <- "upDEG"
-BED[KO3a1.DEGs$genes[KO3a1.DEGs$logFC<0],"type"] <- "dnDEG"
-ggplot() + 
-geom_segment(data=BED,mapping=aes(x=seq_along(BED$type), y=0, xend=seq_along(BED$type),yend=KO3a1DEG,color=type),size=0.1)+
-theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank(),
-        panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(),axis.line = element_line(colour = "black")) + 
-theme_bw()
+# creat MA plot: (Figure.2f)
+condition <- c(rep("group1",length(group1)),rep("group2",length(group2)))
+condition <- factor(condition,levels = c("group1","group2"))
+design = model.matrix(~condition)
+geneQLF = glmFit(geneList, design, robust=TRUE)
+lrt <- glmLRT(geneQLF,contrast=Contrast_samples)
+is.de.gene = decideTestsDGE(lrt, adjust.method="BH",p.value=0.01) # FDR<0.01
+plotMD(cpm(geneList, log=TRUE), column=i, xlab = "Average log-expression", 
+         ylab = "Expression log-ratio (this sample vs others)", main = colnames(geneList)[i])
 ```
 
-### Correlation between methylation change and expression change
+### (2) Heatmap of genes
+
+Related to " Extended Data Figure.3d, 3e "
+
+```R
+library(clusterProfiler);library(pheatmap)
+gmtfile <- "Mus_musculus_GSEA_GO_sets_bp_ids_highquality_April_2015.gmt"
+H <- read.gmt(gmtfile)
+geneDE$logFC <- geneDE$logFC*(-1)
+geneDE <- geneDE[rev(order(geneDE$logFC)),]
+exp.brain<-cpm(geneList,log=TRUE,normalized.lib.sizes = TRUE)
+genesets <- c("Synapse_assembly","NEUROMUSCULAR_PROCESS")
+for (i in genesets) {
+  genes <- H$gene[H$ont==i]
+  genes <- match(genes,geneDE$entrezgene)
+  genes <- genes[!is.na(genes)]
+  genes <- geneDE$mgi_symbol[genes]
+  genes <- intersect(genes,rownames(exp.brain))
+  x<-exp.brain[genes,c(10:12,4:6)]
+  iOrd <- apply(exp.brain[genes,c(4:6,10:12)],1,sd)
+  x <- x[iOrd>0,]
+  pdf(paste("heatmap of ",i,".pdf",sep=""), width=6, height=10)
+  x<-pheatmap(x, color=colorRampPalette(c("blue","white" ,"red"))(60),fontface="italic",fontsize = 10,
+              show_rownames = T, annotation_legend = T,clustering_distance_cols = "correlation",
+              cluster_cols=F,border=F, breaks = seq(-3,3,0.1),scale ="row",
+              show_colnames = T, cluster_rows = T)
+  dev.off()
+}
+```
+
+### (3) Correlation between methylation change and expression change
+
+Related to " Figure.6e, 6f"
 
 ```bash
+module load deeptools
 # obtain methylation value at gene body
 multiBigwigSummary BED-file --binSize 100000 \
  -b sample_01.bw sample_02.bw sample_03.bw sample_04.bw \
@@ -202,7 +234,6 @@ KO3a1.WGBS$meanDif <- rowMeans(KO3a1.WGBS[,c("3a1KO_NeuNuclei_Me_1","3a1KO_NeuNu
     KO3a1.cor$logFC[i] <- mean(KO3a1.WGBS$logFC[bins[[i]]])
     KO3a1.cor$percent_methy[i] <- mean(KO3a1.WGBS$meanDif[bins[[i]]])
   }
-  
   p1 <- ggplot(KO3a1.cor, aes(x = percent_methy, y = logFC)) + geom_point(color = "#00AFBB",size=2) + 
     geom_smooth(method = lm, se = FALSE) + theme_classic()+
     ylab("average LogFC (3a1Ko vs WT)") + xlab("%mCpG (3a1KO-WT)")+
@@ -210,10 +241,12 @@ KO3a1.WGBS$meanDif <- rowMeans(KO3a1.WGBS[,c("3a1KO_NeuNuclei_Me_1","3a1KO_NeuNu
 
 
 
-## Softwares
+## 3. Softwares
 
 STAR (v2.5.3b) 
 
 HTSeq-count (v0.11.0) 
 
 R package EdgeR (v3.26.8), ggplot2 (v3.3.5) 
+
+DeepTools (v3.1.3) 
